@@ -4,6 +4,7 @@ if( ! class_exists( 'WP_List_Table' ) ) {
     require_once( ABSPATH . 'wp-admin/includes/class-wp-list-table.php' );
 }
 include 'functions/Request_Media_Table.php';
+include 'functions/WR_Media.php';
 
 add_action('admin_init','wrn_set_default_settings');
 function wrn_set_default_settings(){
@@ -90,41 +91,74 @@ function wrn_send_rejection_link($actions, $user) {
 }
 add_filter('user_row_actions', 'wrn_send_rejection_link', 10, 2);
 
+//Sending media to approval
+function wrn_send_media_approval($actions, $media) {
+    $user = wp_get_current_user();
+    if( isset($_GET['actiona'])) {
+        if($_GET['actiona'] ==  'wr_send_approval_media' && $_GET['media'] == $media->ID){
+            update_post_meta($media->ID, 'media_sent', $user->ID);
+            echo '<div class="updated notice"><p>Success! The request was sent to higher level</p></div>';
+        }else if(($_GET['actiona'] ==  'wr_send_revoke_media') && $_GET['media'] == $media->ID){
+            update_post_meta($media->ID, 'media_sent', 0);
+            echo '<div class="updated notice"><p>Success! The request was removed</p></div>';
+        }
+        echo 'something';
+    }
+    $media_sent = get_post_meta($media->ID, 'media_sent', true);
+    if(in_array( 'administrator', $user->roles)){
+        if($media_sent == 0 ){
+            $actions['wr_send_approval_media'] = "<a class='wr_send_approval_media' href='" . admin_url( "upload.php?actiona=wr_send_approval_media&amp;media=" . $media->ID ) . "'>" . __( 'Send Media' ) . "</a>";
+        }else{
+            $actions['wr_send_revoke_media'] = "<a class='wr_send_revoke_media' href='" . admin_url( "upload.php?actiona=wr_send_revoke_media&amp;media=" . $media->ID ) . "'>" . __( 'Revoke Media' ) . "</a>";
+        }
+    }
+
+    return $actions;
+}
+add_filter('media_row_actions', 'wrn_send_media_approval', 11, 2);
+
 function wr_custom_media_add_media_custom_field( $form_fields, $post ) {
     $user = wp_get_current_user();
-    $admins = unserialize(get_post_meta($post->ID,'_admin_signed',true));
+    $admins = unserialize(get_post_meta($post->ID,'admin_signed',true));
 
     $flag = get_post_meta($post->ID,'media_approved',true) ? true : false;
 
     $isApproved = $flag ? 'on' : '';
+    $isSigned = (array_key_exists($user->ID, $admins)) ? 'on' : '';
     $checked = $flag ? 'checked' : '';
+    $checkedSigned = $isSigned == 'on' ? 'checked' : '';
     $value = $flag ? 'Yes' : 'No';
 
-    //$string_admins = $admins ? (count($admins) > 0 ? implode(', ', $admins) : '') : '';
 
     if ( in_array( 'administrator', $user->roles) ){
         $disabled = "";
         $form_fields['media_approved'] = array(
             'html' => "<input type='checkbox' {$checked}  name='attachments[{$post->ID}][isApproved]' id='attachments[{$post->ID}][isApproved]' />",
             'value' => $isApproved,
-            'label' => __( 'Approve this' ),
+            'label' => __( 'Approved for local use' ),
+            'input'  => 'html'
+        );
+        $form_fields['signed_by'] = array(
+            'html' => "<input type='checkbox' {$checkedSigned}  name='attachments[{$post->ID}][isSigned]' id='attachments[{$post->ID}][isSigned]' />",
+            'value' => $isSigned,
+            'label' => __( 'I have approved this for external use' ),
             'input'  => 'html'
         );
     }else{
         $form_fields['media_approved'] = array(
             'html' => "<span>" .  $value ."</span>",
             'value' => $isApproved,
-            'label' => __( 'Approved: ' ),
+            'label' => __( 'Approved for local use' ),
             'input'  => 'html'
         );
     }
-
-    /*$form_fields['media_admins'] = array(
+    $string_admins = $admins ? (count($admins) > 0 ? implode(', ', $admins) : '') : '';
+    $form_fields['admin_signed'] = array(
         'html' => "<strong>".$string_admins."</strong>",
         'value' => $string_admins,
-        'label' => __( 'Approved By: ' ),
+        'label' => __( 'Signed By: ' ),
         'input'  => 'html'
-    );*/
+    );
     return $form_fields;
 }
 add_filter( 'attachment_fields_to_edit', 'wr_custom_media_add_media_custom_field', null, 10,2 );
@@ -132,22 +166,25 @@ add_filter( 'attachment_fields_to_edit', 'wr_custom_media_add_media_custom_field
 //save your custom media field
 function wr_saving_custom_media_fields ( $post, $attachments ) {
     $user = wp_get_current_user();
-    if(isset($attachments['isApproved'] ) && $attachments['isApproved']  == 'on')
+    $admins = (get_post_meta($post['ID'],'admin_signed',true) == null || get_post_meta($post['ID'],'admin_signed',true) == '')
+        ? array()
+        : unserialize(get_post_meta($post['ID'],'admin_signed',true));
+
+    //Approve media for local use
+    if($attachments['isApproved']  == 'on'){
         update_post_meta( $post['ID'], 'media_approved', 1);
-    else
+    } else {
         update_post_meta( $post['ID'], 'media_approved', 0);
+    }
+    //Approve media for external use
+    if(!array_key_exists($user->ID, $admins) && $attachments['isSigned']  == 'on'){
+        $admins[$user->ID] = $user->user_login;
+    }else if(array_key_exists($user->ID, $admins) && $attachments['isSigned']  != 'on'){
+        unset($admins[$user->ID]);
+    }
 
 
-    $admins = (get_post_meta($post['ID'],'_admin_signed',true) == null || get_post_meta($post['ID'],'_admin_signed',true) == '')
-                    ? array()
-                    : unserialize(get_post_meta($post['ID'],'media_approved',true));
-
-   /* if($isApproved && !in_array($user->ID, $admins)){
-        //$admins[$user->ID] = $user->user_login;
-    }else {
-        //unset($admins[$user->ID]);
-    }*/
-    //update_post_meta( $post['ID'], 'media_approved', serialize($admins));
+    update_post_meta( $post['ID'], 'admin_signed', serialize($admins));
     return $post;
 }
 add_filter( 'attachment_fields_to_save', 'wr_saving_custom_media_fields', 10, 2 );
