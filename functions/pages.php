@@ -14,7 +14,7 @@ function wrn_add_request_page(){
         } );
 
         add_submenu_page( 'upload.php', 'Settings', 'Settings', 'manage_options', 'wrn_settings_media', function(){
-            if($_POST['max_admin_approval_submit']){
+            if(isset($_POST['max_admin_approval_submit'])){
                 if($_POST['max_admin_approval'] > 0){
                     wrn_update_option_parent('wrn_max_admin_approval',$_POST['max_admin_approval']);
                 }else{

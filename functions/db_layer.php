@@ -38,16 +38,46 @@
 
     }
 
+    //get all the requested media
+    function wrn_get_all_requested_media()
+    {
+        global $wpdb;
+        $medias = $wpdb->get_results("SELECT * FROM $wpdb->base_prefix" . "wrn_media", ARRAY_A);
+        return $medias;
+    }
+
+    //Check is the media exists
+    function wrn_exist_media($id){
+        global $wpdb;
+        $medias = $wpdb->get_results("SELECT * FROM $wpdb->base_prefix" . "wrn_media WHERE id='{$id}'", ARRAY_A);
+        if(count($medias)>0){
+            return true;
+        }
+        return false;
+    }
+
     //Add media to be shared between levels
-   function wrn_add_media($name,$url,$status, $admins = array(),$blog_id){
+   function wrn_add_media($id,$name,$url,$status, $admins,$blog_id){
        global $wpdb;
-       $wpdb->query("INSERT INTO $wpdb->base_prefix" . "wrn_media (id,name,url,status,admins,blog_id) VALUES ('$name','$url','$status','$admins','$blog_id'))");
+       if(wrn_exist_media($id)){
+           return false;
+       }
+       $wpdb->query("INSERT INTO $wpdb->base_prefix" . "wrn_media (id,name,url,status,admins,blog_id) VALUES ('$id','$name','$url','$status','$admins','$blog_id')");
        if($wpdb->insert_id > 0){
            return true;
        }else{
-           return false;
+           return $wpdb->last_error;
        }
    }
+
+    //Remove media
+    function wrn_remove_media($id){
+        global $wpdb;
+        $wpdb->query("DELETE FROM $wpdb->base_prefix" . "wrn_media WHERE id='{$id}'");
+        if(wrn_exist_media($id)){
+            return false;
+        } return true;
+    }
 
     //Create my own get_option but another level (get_site and get_network not working properly)
     function wrn_get_option_parent($option_name){
@@ -73,3 +103,4 @@
             }
         }
     }
+
